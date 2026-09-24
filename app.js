@@ -262,7 +262,7 @@
       $('local-login').classList.add('hidden');
       $('auth-submit').textContent = mode === 'login' ? 'Sign in' : 'Create account';
       $('auth-form').dataset.mode = mode;
-      $('password-label').textContent = mode === 'login' ? 'Password' : 'Password (6+ characters)';
+      $('password-label').querySelector('span').textContent = mode === 'login' ? 'Password' : 'Password (6+ characters)';
       $('auth-message').textContent = SUPABASE_READY ? '' : 'Cloud login is not configured yet. Use local mode or complete the Supabase setup in the README.';
     }
   }
