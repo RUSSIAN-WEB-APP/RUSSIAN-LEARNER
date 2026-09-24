@@ -1,0 +1,12 @@
+{
+  "name": "Russian Learner",
+  "short_name": "Russian Learner",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f7f9fb",
+  "theme_color": "#58cc02",
+  "description": "Adaptive Russian practice built around your own vocabulary.",
+  "icons": [
+    {"src":"icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}
+  ]
+}
