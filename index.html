@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="description" content="Personal Russian vocabulary and spaced-repetition learning app.">
+  <title>Russian Learner</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <section id="auth-screen" class="auth-screen">
+    <div class="auth-card">
+      <div class="brand-mark">RU</div>
+      <h1>Russian Learner</h1>
+      <p class="muted">Save vocabulary, practice it repeatedly, build phrases, and track your progress.</p>
+
+      <div class="auth-tabs">
+        <button id="tab-login" class="tab active" type="button">Sign in</button>
+        <button id="tab-signup" class="tab" type="button">Create account</button>
+        <button id="tab-local" class="tab" type="button">Use locally</button>
+      </div>
+
+      <form id="auth-form" class="stack">
+        <label id="email-label">Email<input id="auth-email" type="email" autocomplete="email" required></label>
+        <label id="password-label">Password<input id="auth-password" type="password" minlength="6" autocomplete="current-password" required></label>
+        <button id="auth-submit" class="primary wide" type="submit">Sign in</button>
+      </form>
+
+      <div id="local-login" class="hidden stack">
+        <p class="small-note">Local mode stores your vocabulary in this browser. It is useful for testing, but it does not sync between devices.</p>
+        <button id="local-start" class="primary wide" type="button">Start local mode</button>
+      </div>
+
+      <p id="auth-message" class="small-note" aria-live="polite"></p>
+    </div>
+  </section>
+
+  <div id="app" class="app hidden">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark small">RU</div>
+        <div>
+          <strong>Russian Learner</strong>
+          <span id="user-label" class="muted tiny"></span>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button id="speak-current" class="icon-btn" title="Speak current Russian text" aria-label="Speak current Russian text">🔊</button>
+        <button id="logout" class="ghost-btn">Sign out</button>
+      </div>
+    </header>
+
+    <div class="app-body">
+      <aside class="sidebar">
+        <button class="nav-btn active" data-view="dashboard">🏠 <span>Dashboard</span></button>
+        <button class="nav-btn" data-view="vocabulary">📚 <span>Vocabulary</span></button>
+        <button class="nav-btn" data-view="review">🧠 <span>Review</span><span id="review-badge" class="badge">0</span></button>
+        <button class="nav-btn" data-view="phrases">🗣️ <span>Phrase Lab</span></button>
+        <button class="nav-btn" data-view="progress">📊 <span>Progress</span></button>
+        <button class="nav-btn" data-view="settings">⚙️ <span>Settings</span></button>
+      </aside>
+
+      <main class="main">
+        <section id="view-dashboard" class="view active-view">
+          <div class="page-heading">
+            <div>
+              <p class="eyebrow">YOUR RUSSIAN</p>
+              <h2>Dashboard</h2>
+            </div>
+            <button class="primary" data-view-jump="vocabulary">+ Add vocabulary</button>
+          </div>
+
+          <div class="stats-grid">
+            <article class="stat-card"><span>Total entries</span><strong id="stat-total">0</strong><small>words + phrases</small></article>
+            <article class="stat-card"><span>Words</span><strong id="stat-words">0</strong><small>single-word entries</small></article>
+            <article class="stat-card"><span>Due now</span><strong id="stat-due">0</strong><small>ready for review</small></article>
+            <article class="stat-card"><span>Accuracy</span><strong id="stat-accuracy">0%</strong><small>saved review answers</small></article>
+          </div>
+
+          <div class="dashboard-grid">
+            <article class="card level-card">
+              <div class="card-title-row"><div><h3>Estimated level</h3><p class="muted">Vocabulary-size estimate only, not an official language exam.</p></div><span id="level-pill" class="level-pill">A0</span></div>
+              <div class="level-meter"><div id="level-meter-fill" class="level-meter-fill"></div></div>
+              <div class="level-scale"><span>A1</span><span>A2</span><span>B1</span><span>B2</span><span>C1</span><span>C2</span></div>
+              <div class="level-copy"><strong id="level-count">0 words</strong><span id="level-next">780 to A1</span></div>
+            </article>
+
+            <article class="card today-card">
+              <div class="card-title-row"><div><h3>Today</h3><p class="muted">Your scheduled practice.</p></div><span class="streak">🔥 <span id="streak-count">0</span></span></div>
+              <div class="today-row"><span>Due reviews</span><strong id="today-due">0</strong></div>
+              <div class="today-row"><span>Completed today</span><strong id="today-completed">0</strong></div>
+              <button class="primary wide" data-view-jump="review">Review now</button>
+            </article>
+          </div>
+
+          <article class="card">
+            <div class="card-title-row"><div><h3>Recent vocabulary</h3><p class="muted">The latest words and phrases you added.</p></div><button class="text-btn" data-view-jump="vocabulary">View all →</button></div>
+            <div id="recent-list" class="recent-list"></div>
+          </article>
+        </section>
+
+        <section id="view-vocabulary" class="view">
+          <div class="page-heading"><div><p class="eyebrow">BUILD YOUR WORD BANK</p><h2>Vocabulary</h2></div></div>
+          <div class="card add-card">
+            <div class="card-title-row"><div><h3>Add a Russian word or phrase</h3><p class="muted">You can add a word, a phrase, or a sentence. Your saved items drive the review and phrase exercises.</p></div></div>
+            <form id="vocab-form" class="form-grid">
+              <label>Russian<input id="v-russian" required placeholder="например: нужно"></label>
+              <label>English meaning<input id="v-english" placeholder="e.g. need / necessary"></label>
+              <label>Category
+                <select id="v-category">
+                  <option>General</option><option>Daily life</option><option>Food</option><option>Travel</option><option>Work</option><option>Study</option><option>People</option><option>Home</option><option>Grammar</option><option>Other</option>
+                </select>
+              </label>
+              <label>Type
+                <select id="v-type"><option value="word">Word</option><option value="phrase">Phrase / sentence</option></select>
+              </label>
+              <label class="span-2">Notes / example<input id="v-notes" placeholder="Optional context, grammar note, or example"></label>
+              <div class="span-2 form-actions"><button class="primary" type="submit">Save vocabulary</button><button class="secondary" type="button" id="v-clear">Clear</button></div>
+            </form>
+          </div>
+
+          <div class="card">
+            <div class="toolbar"><input id="search" class="search" placeholder="🔍 Search Russian, English, category..." aria-label="Search vocabulary"><select id="filter-category"><option value="">All categories</option></select><select id="sort-vocab"><option value="newest">Newest</option><option value="due">Due first</option><option value="mastery">Mastery</option><option value="az">Russian A–Z</option></select></div>
+            <div id="vocab-list" class="table-list"></div>
+          </div>
+        </section>
+
+        <section id="view-review" class="view">
+          <div class="page-heading"><div><p class="eyebrow">SPACED REPETITION</p><h2>Review</h2></div><span class="review-counter" id="review-counter">0 due</span></div>
+          <div id="review-empty" class="card empty-state hidden"><div class="empty-icon">✅</div><h3>You are caught up</h3><p class="muted">There are no due reviews right now. Add more vocabulary or come back later.</p><button class="primary" data-view-jump="vocabulary">Add vocabulary</button></div>
+          <div id="review-card-wrap" class="review-wrap hidden">
+            <article id="review-card" class="flashcard">
+              <div class="flashcard-meta"><span id="review-type-label">Recognition</span><span id="review-category-label">General</span></div>
+              <div class="flashcard-front"><div id="review-russian" class="big-russian"></div><button id="review-speak" class="speak-button" title="Pronounce">🔊</button></div>
+              <div id="review-prompt" class="review-prompt">What does this mean?</div>
+              <div id="review-answer" class="review-answer hidden"></div>
+              <div id="review-feedback" class="review-feedback"></div>
+              <button id="review-reveal" class="primary wide">Show answer</button>
+              <div id="review-grading" class="grading hidden">
+                <button class="grade hard" data-grade="again">↺ Again</button>
+                <button class="grade medium" data-grade="hard">△ Hard</button>
+                <button class="grade easy" data-grade="good">✓ Good</button>
+                <button class="grade very-easy" data-grade="easy">⚡ Easy</button>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section id="view-phrases" class="view">
+          <div class="page-heading"><div><p class="eyebrow">USE YOUR OWN VOCABULARY</p><h2>Phrase Lab</h2></div><button id="new-phrase" class="primary">Generate another</button></div>
+          <div class="phrase-grid">
+            <article class="card phrase-main">
+              <span class="eyebrow">GENERATED PRACTICE</span>
+              <div id="generated-phrase" class="generated-phrase">Add at least two words to start generating phrases.</div>
+              <div id="generated-translation" class="generated-translation"></div>
+              <button id="phrase-speak" class="secondary">🔊 Hear Russian</button>
+              <p class="small-note">The phrase engine deliberately uses conservative templates and your own saved vocabulary. It is practice material, not a claim that every generated sentence is the only natural Russian expression.</p>
+            </article>
+            <article class="card">
+              <h3>How it works</h3>
+              <ol class="steps"><li>It selects vocabulary you already saved.</li><li>It favors items that need practice.</li><li>It combines them using simple Russian sentence patterns.</li><li>As your mastery grows, longer patterns become available.</li></ol>
+            </article>
+          </div>
+        </section>
+
+        <section id="view-progress" class="view">
+          <div class="page-heading"><div><p class="eyebrow">LEARNING HISTORY</p><h2>Progress</h2></div></div>
+          <div class="stats-grid"><article class="stat-card"><span>Reviews</span><strong id="progress-reviews">0</strong><small>all saved attempts</small></article><article class="stat-card"><span>Correct</span><strong id="progress-correct">0</strong><small>successful recalls</small></article><article class="stat-card"><span>Accuracy</span><strong id="progress-accuracy">0%</strong><small>overall</small></article><article class="stat-card"><span>Mastered</span><strong id="progress-mastered">0</strong><small>high-confidence entries</small></article></div>
+          <article class="card"><div class="card-title-row"><div><h3>Level thresholds</h3><p class="muted">Approximate vocabulary-size milestones used by this app.</p></div></div><div id="level-table" class="level-table"></div></article>
+          <article class="card"><h3>Recent review activity</h3><div id="activity-list" class="activity-list"></div></article>
+        </section>
+
+        <section id="view-settings" class="view">
+          <div class="page-heading"><div><p class="eyebrow">APP SETTINGS</p><h2>Settings</h2></div></div>
+          <div class="settings-grid">
+            <article class="card"><h3>Daily review goal</h3><p class="muted">Used to show your daily target; review scheduling remains based on due dates.</p><label>Cards per day<input id="setting-goal" type="number" min="1" max="500" value="20"></label><button id="save-settings" class="primary">Save settings</button></article>
+            <article class="card"><h3>Data</h3><p class="muted">Export a JSON backup of your vocabulary and progress. Import can restore a backup into this browser.</p><div class="settings-actions"><button id="export-data" class="secondary">Export JSON</button><label class="file-btn secondary">Import JSON<input id="import-data" type="file" accept="application/json" hidden></label></div></article>
+            <article class="card"><h3>Audio</h3><p class="muted">Uses your browser's built-in Russian text-to-speech voice when available.</p><button id="test-voice" class="secondary">🔊 Test Russian voice</button><div id="voice-status" class="small-note"></div></article>
+            <article class="card danger-card"><h3>Local data</h3><p class="muted">This button clears the current browser's local copy. Cloud data is not deleted from Supabase.</p><button id="clear-local" class="danger">Clear local cache</button></article>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="app.js"></script>
+</body>
+</html>
