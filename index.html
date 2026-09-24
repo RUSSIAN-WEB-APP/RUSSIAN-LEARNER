@@ -3,13 +3,26 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#58cc02">
+  <meta name="theme-color" content="#6d28d9">
   <meta name="description" content="Russian Learner — an adaptive Russian study app built around your own vocabulary.">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
-  <title>Russian Learner</title>
-  <link rel="stylesheet" href="styles.css">
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <title>Russian Learner — Purple &amp; Gold Edition</title>
+  <link rel="stylesheet" href="styles.css?v=2.1.0">
+  <script>
+    window.addEventListener('error', function (event) {
+      var view = document.getElementById('view');
+      if (view && event && event.error) {
+        view.innerHTML = '<div class="card error-screen"><div class="error-icon">⚠️</div><h1>Russian Learner could not start</h1><p class="muted">The page loaded, but one of its scripts failed. Refresh once after the update finishes.</p><pre class="error-details">' + String(event.error.message || event.error) + '</pre><button class="primary-btn" onclick="location.reload()">Reload app</button></div>';
+      }
+    });
+    window.addEventListener('unhandledrejection', function (event) {
+      var view = document.getElementById('view');
+      if (view && event && event.reason) {
+        view.innerHTML = '<div class="card error-screen"><div class="error-icon">⚠️</div><h1>Russian Learner needs a refresh</h1><p class="muted">An async browser error occurred.</p><pre class="error-details">' + String(event.reason.message || event.reason) + '</pre><button class="primary-btn" onclick="location.reload()">Reload app</button></div>';
+      }
+    });
+  </script>
 </head>
 <body>
   <div id="app-shell" class="app-shell">
@@ -54,7 +67,7 @@
         </div>
       </header>
 
-      <section id="view" class="view"></section>
+      <section id="view" class="view"><div class="card loading-card"><div class="loading-spinner"></div><h2>Loading Russian Learner…</h2><p class="muted">Preparing your personal course.</p></div></section>
     </main>
   </div>
 
@@ -106,10 +119,12 @@
     </div>
   </div>
 
-  <script src="config.js"></script>
-  <script src="app.js"></script>
+  <script src="config.js?v=2.1.0"></script>
+  <script src="app.js?v=2.1.0"></script>
   <script>
-    if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js?v=2.1.0').catch(() => {});
+    }
   </script>
 </body>
 </html>

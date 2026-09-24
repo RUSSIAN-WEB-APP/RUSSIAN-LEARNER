@@ -7,10 +7,45 @@
 
   const CFG = window.APP_CONFIG || {};
   const SUPABASE_KEY = CFG.SUPABASE_PUBLISHABLE_KEY || CFG.SUPABASE_ANON_KEY || '';
-  const hasCloud = Boolean(CFG.SUPABASE_URL && SUPABASE_KEY && window.supabase);
-  const cloud = hasCloud ? window.supabase.createClient(CFG.SUPABASE_URL, SUPABASE_KEY, {
-    auth: { autoRefreshToken: true, persistSession: true, detectSessionInUrl: true }
-  }) : null;
+  let cloud = null;
+  let cloudLoadPromise = null;
+
+  function initCloudClient() {
+    if (cloud) return cloud;
+    if (!(CFG.SUPABASE_URL && SUPABASE_KEY && window.supabase)) return null;
+    cloud = window.supabase.createClient(CFG.SUPABASE_URL, SUPABASE_KEY, {
+      auth: { autoRefreshToken: true, persistSession: true, detectSessionInUrl: true }
+    });
+    return cloud;
+  }
+
+  async function ensureCloud() {
+    if (cloud) return cloud;
+    if (!(CFG.SUPABASE_URL && SUPABASE_KEY)) return null;
+    if (window.supabase) return initCloudClient();
+    if (cloudLoadPromise) return cloudLoadPromise;
+
+    cloudLoadPromise = new Promise((resolve, reject) => {
+      const existing = document.querySelector('script[data-supabase-loader]');
+      if (existing) {
+        existing.addEventListener('load', () => resolve(initCloudClient()), { once: true });
+        existing.addEventListener('error', () => reject(new Error('Supabase library could not be loaded.')), { once: true });
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
+      script.async = true;
+      script.dataset.supabaseLoader = 'true';
+      script.onload = () => {
+        try { resolve(initCloudClient()); } catch (err) { reject(err); }
+      };
+      script.onerror = () => reject(new Error('Supabase could not be loaded. Local mode is still available.'));
+      document.head.appendChild(script);
+      window.setTimeout(() => reject(new Error('Supabase loading timed out. Local mode is still available.')), 8000);
+    }).finally(() => { cloudLoadPromise = null; });
+
+    return cloudLoadPromise;
+  }
 
   const LS_KEY = 'russianLearner2';
   const SESSION_KEY = 'russianLearner2_session';
@@ -111,26 +146,44 @@
 
   function getUser() { return cloud ? cloud.auth.getUser().then(r => r.data.user || null).catch(() => null) : Promise.resolve(null); }
 
-  async function boot() {
-    if (cloud) {
-      cloud.auth.onAuthStateChange(async (_event, session) => {
-        if (session?.user) {
-          state.mode = 'cloud'; state.profile.id = session.user.id; state.profile.email = session.user.email || '';
-          await loadCloud();
-          saveLocal();
-        } else if (!state.profile.id) state.mode = 'local';
-        render();
-      });
-      try {
-        const { data } = await cloud.auth.getSession();
-        if (data.session?.user) {
-          state.mode = 'cloud'; state.profile.id = data.session.user.id; state.profile.email = data.session.user.email || '';
-          await loadCloud();
+  async function bootstrapCloudSession() {
+    try {
+      const c = await ensureCloud();
+      if (!c) return;
+      c.auth.onAuthStateChange(async (_event, session) => {
+        try {
+          if (session?.user) {
+            state.mode = 'cloud';
+            state.profile.id = session.user.id;
+            state.profile.email = session.user.email || '';
+            await loadCloud();
+            saveLocal();
+          } else if (!state.profile.id) {
+            state.mode = 'local';
+          }
+          safeRender();
+        } catch (err) {
+          showRuntimeError(err);
         }
-      } catch {}
+      });
+      const { data } = await c.auth.getSession();
+      if (data.session?.user) {
+        state.mode = 'cloud';
+        state.profile.id = data.session.user.id;
+        state.profile.email = data.session.user.email || '';
+        await loadCloud();
+        saveLocal();
+        safeRender();
+      }
+    } catch (err) {
+      console.warn('[Russian Learner] Cloud initialization skipped:', err);
     }
+  }
+
+  async function boot() {
     buildVoices();
-    render();
+    safeRender();
+    if (CFG.SUPABASE_URL && SUPABASE_KEY) bootstrapCloudSession();
   }
 
   function buildVoices() {
@@ -566,29 +619,63 @@
     $('#top-streak').textContent=state.stats.streak||0; $('#side-streak').textContent=state.stats.streak||0; $('#top-xp').textContent=dayStats().xp||0; $('#side-xp').textContent=dayStats().xp||0; $('#top-gems').textContent=state.stats.gems||0;
     $('#profile-btn').textContent=(state.profile.avatar||state.profile.display_name||'RU').slice(0,2).toUpperCase();
   }
-  function render(){ updateHeader(); renderRoute(); }
+  function showRuntimeError(err) {
+    console.error('[Russian Learner]', err);
+    const view = $('#view');
+    if (!view) return;
+    const msg = esc(err?.message || String(err || 'Unknown error'));
+    view.innerHTML = `<div class="card error-screen"><div class="error-icon">⚠️</div><h1>Russian Learner needs to reload</h1><p class="muted">A browser-side error stopped this screen. Your saved local data is not automatically deleted.</p><pre class="error-details">${msg}</pre><div class="error-actions"><button class="primary-btn" data-reload-app>Reload app</button><button class="secondary-btn" data-route="settings">Open settings</button></div></div>`;
+  }
 
-  function navigate(to){ route=to; if(to!=='review') reviewSession=null; if(to!=='flashcards') flashSession=null; if(to!=='stories') storySession=null; render(); window.scrollTo({top:0,behavior:'smooth'}); }
+  function safeRender(){ try { updateHeader(); renderRoute(); } catch(err) { showRuntimeError(err); } }
+  function render(){ safeRender(); }
+
+  function navigate(to){ route=to; if(to!=='review') reviewSession=null; if(to!=='flashcards') flashSession=null; if(to!=='stories') storySession=null; if (location.hash !== `#/${to}`) history.replaceState(null,'',`#/${to}`); safeRender(); window.scrollTo({top:0,behavior:'smooth'}); }
 
   function exportBackup(){ const blob=new Blob([JSON.stringify({version:2,exported_at:isoNow(),state},null,2)],{type:'application/json'}); const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`russian-learner-${dayKey()}.json`;a.click();URL.revokeObjectURL(a.href); }
   function importBackup(file){ const reader=new FileReader(); reader.onload=()=>{try{const data=JSON.parse(reader.result); if(data.state){state=mergeState(defaultState(),data.state);saveLocal();render();toast('Backup imported.');}else throw new Error();}catch{toast('That backup file is not valid.');}}; reader.readAsText(file); }
 
   async function doAuth(mode='signin'){
-    if(!cloud){toast('Cloud login is not configured yet. Local mode is available.');return;}
-    $('#auth-title').textContent=mode==='signup'?'Create your account':'Welcome back'; $('#auth-subtitle').textContent=mode==='signup'?'Your progress will sync across devices.':'Sign in to sync your progress.'; $('#auth-confirm-wrap').classList.toggle('hidden',mode!=='signup'); $('#auth-password-label').textContent=mode==='signup'?'Password (6+ characters)':'Password'; $('#auth-password').autocomplete=mode==='signup'?'new-password':'current-password'; $('#auth-submit').textContent=mode==='signup'?'Create account':'Sign in'; $('#auth-modal').dataset.mode=mode; openModal('auth-modal'); }
-  async function submitAuth(e){ e.preventDefault(); if(!cloud){closeModal('auth-modal');return;} const mode=$('#auth-modal').dataset.mode||'signin'; const email=$('#auth-email').value.trim(); const password=$('#auth-password').value; const confirm=$('#auth-confirm')?.value||''; if(mode==='signup'&&password!==confirm){toast('Passwords do not match.');return;} $('#auth-submit').disabled=true;
+    try {
+      const c = await ensureCloud();
+      if(!c){toast('Cloud login is unavailable right now. Use local mode or check your Supabase settings.');return;}
+      $('#auth-title').textContent=mode==='signup'?'Create your account':'Welcome back';
+      $('#auth-subtitle').textContent=mode==='signup'?'Your progress will sync across devices.':'Sign in to sync your progress.';
+      $('#auth-confirm-wrap').classList.toggle('hidden',mode!=='signup');
+      $('#auth-password-label').textContent=mode==='signup'?'Password (6+ characters)':'Password';
+      $('#auth-password').autocomplete=mode==='signup'?'new-password':'current-password';
+      $('#auth-submit').textContent=mode==='signup'?'Create account':'Sign in';
+      $('#auth-modal').dataset.mode=mode;
+      openModal('auth-modal');
+    } catch (err) {
+      toast(err.message || 'Cloud login is unavailable.');
+    }
+  }
+  async function submitAuth(e){
+    e.preventDefault();
+    const c = await ensureCloud();
+    if(!c){toast('Cloud login is unavailable. Use local mode or check your Supabase configuration.');return;}
+    const mode=$('#auth-modal').dataset.mode||'signin'; const email=$('#auth-email').value.trim(); const password=$('#auth-password').value; const confirm=$('#auth-confirm')?.value||''; if(mode==='signup'&&password!==confirm){toast('Passwords do not match.');return;} $('#auth-submit').disabled=true;
     try{
       if(mode==='signup'){
         const {data,error}=await cloud.auth.signUp({email,password,options:{emailRedirectTo:location.origin+location.pathname}}); if(error) throw error; if(data.user){toast('Account created. Check your email if confirmation is enabled.');closeModal('auth-modal');}
       } else { const {data,error}=await cloud.auth.signInWithPassword({email,password}); if(error) throw error; if(data.user){state.mode='cloud';state.profile.id=data.user.id;state.profile.email=data.user.email||email;await loadCloud();saveLocal();closeModal('auth-modal');toast('Signed in.');render();} }
     } catch(err){toast(err.message||'Authentication failed.');} finally {$('#auth-submit').disabled=false;}
   }
-  async function signOut(){ if(cloud) await cloud.auth.signOut(); state.mode='local';state.profile.id=null;state.profile.email='';saveLocal();toast('Signed out. Local mode remains available.');render(); }
+  async function signOut(){ if(cloud) await cloud.auth.signOut(); state.mode='local';state.profile.id=null;state.profile.email='';saveLocal();toast('Signed out. Local mode remains available.');safeRender(); }
 
   function openModal(id){const m=$(`#${id}`);if(m){m.classList.add('open');m.setAttribute('aria-hidden','false');}}
   function closeModal(id){const m=$(`#${id}`);if(m){m.classList.remove('open');m.setAttribute('aria-hidden','true');}}
 
+  window.addEventListener('error', (e) => {
+    if (e?.error) showRuntimeError(e.error);
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    if (e?.reason) showRuntimeError(e.reason);
+  });
+
   document.addEventListener('click', async (e) => {
+    if(e.target.closest('[data-reload-app]')){ location.reload(); return; }
     const nav=e.target.closest('[data-route]'); if(nav){navigate(nav.dataset.route);return;}
     const start=e.target.closest('[data-start]'); if(start){if(start.dataset.start==='review') startReview('review',10); else startReview('adaptive',10);return;}
     if(e.target.closest('[data-start-flashcards]')){startFlashcards(12);return;}
@@ -649,5 +736,9 @@
 
   // Route bootstrap from URL hash if present.
   const hash=location.hash.replace('#/',''); if(hash) route=hash;
+  window.addEventListener('hashchange', () => {
+    const next = location.hash.replace('#/','') || 'home';
+    if (next !== route) { route = next; safeRender(); }
+  });
   boot();
 })();
