@@ -1,5 +1,5 @@
-const VERSION = 'russian-learner-v2-1-0';
-const ASSETS = ['./', './index.html', './styles.css?v=2.1.0', './app.js?v=2.1.0', './config.js?v=2.1.0', './manifest.json', './icon.svg'];
+const VERSION = 'russian-learner-v2-1-1';
+const ASSETS = ['./', './index.html', './styles.css?v=2.1.1', './app.js?v=2.1.1', './config.js?v=2.1.1', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(VERSION).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting()));

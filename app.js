@@ -49,6 +49,22 @@
 
   const LS_KEY = 'russianLearner2';
   const SESSION_KEY = 'russianLearner2_session';
+  const $ = (s, root = document) => root.querySelector(s);
+  const $$ = (s, root = document) => [...root.querySelectorAll(s)];
+  const clone = obj => JSON.parse(JSON.stringify(obj));
+  const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const now = () => new Date();
+  const isoNow = () => new Date().toISOString();
+  const esc = s => String(s ?? '').replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
+  const norm = s => String(s ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[ё]/g,'е').replace(/[^\p{L}\p{N}\s-]/gu,'').replace(/\s+/g,' ').trim();
+  const tokenize = s => norm(s).split(/\s+/).filter(Boolean);
+  const rand = (arr) => arr.length ? arr[Math.floor(Math.random() * arr.length)] : null;
+  const shuffle = arr => [...arr].sort(() => Math.random() - 0.5);
+  const clamp = (n,a,b) => Math.max(a, Math.min(b,n));
+  const daysFromNow = d => new Date(Date.now() + d * 86400000).toISOString();
+  const dayKey = (d = now()) => d.toISOString().slice(0,10);
+  const startDay = d => new Date(`${dayKey(d)}T00:00:00`);
+
   const DEFAULT_STATE = {
     mode: 'local',
     profile: { id: null, email: '', display_name: 'Russian Learner', avatar: 'RU' },
@@ -70,22 +86,6 @@
   let speechRecognizer = null;
   let speechListening = false;
   let currentSpeakTarget = '';
-
-  const $ = (s, root = document) => root.querySelector(s);
-  const $$ = (s, root = document) => [...root.querySelectorAll(s)];
-  const clone = obj => JSON.parse(JSON.stringify(obj));
-  const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
-  const now = () => new Date();
-  const isoNow = () => new Date().toISOString();
-  const esc = s => String(s ?? '').replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
-  const norm = s => String(s ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[ё]/g,'е').replace(/[^\p{L}\p{N}\s-]/gu,'').replace(/\s+/g,' ').trim();
-  const tokenize = s => norm(s).split(/\s+/).filter(Boolean);
-  const rand = (arr) => arr.length ? arr[Math.floor(Math.random() * arr.length)] : null;
-  const shuffle = arr => [...arr].sort(() => Math.random() - 0.5);
-  const clamp = (n,a,b) => Math.max(a, Math.min(b,n));
-  const daysFromNow = d => new Date(Date.now() + d * 86400000).toISOString();
-  const dayKey = (d = now()) => d.toISOString().slice(0,10);
-  const startDay = d => new Date(`${dayKey(d)}T00:00:00`);
 
   function defaultState() { return clone(DEFAULT_STATE); }
   function loadState() {
