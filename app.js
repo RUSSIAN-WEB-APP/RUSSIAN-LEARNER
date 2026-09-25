@@ -285,23 +285,88 @@
   async function updateWord(word) { state.vocabulary = state.vocabulary.map(v => v.id === word.id ? word : v); saveLocal(); await cloudUpsertWord(word); }
 
   function levelFromScore(score) {
-    if (score < 10) return ['A1', 'Early beginner'];
-    if (score < 30) return ['A1', 'Beginner'];
+    if (score < 10) return ['A1', 'Very early beginner'];
+    if (score < 20) return ['A1', 'Early beginner'];
+    if (score < 30) return ['A1', 'High A1'];
     if (score < 60) return ['A2', 'Elementary'];
-    if (score < 80) return ['B1', 'Intermediate'];
-    if (score < 100) return ['B1', 'Upper intermediate'];
-    if (score < 115) return ['B2', 'Upper intermediate'];
-    if (score < 130) return ['B2', 'Upper intermediate'];
+    if (score < 80) return ['B1', 'Early intermediate'];
+    if (score < 100) return ['B1', 'High intermediate'];
+    if (score < 115) return ['B2', 'Early upper-intermediate'];
+    if (score < 130) return ['B2', 'High upper-intermediate'];
     return ['C1/C2', 'Advanced'];
   }
-  function vocabularyCount() { return new Set(state.vocabulary.flatMap(v => tokenize(v.russian))).size; }
+
+  // Russian-as-a-foreign-language lexical-minimum anchors used by this app.
+  // Approximate benchmarks: A1≈780, A2≈1300, B1≈2300, B2≈5000,
+  // C1≈9000, with a 12000-word operational C2 benchmark.
+  // Vocabulary count alone is not a formal CEFR test.
+  const VOCAB_SCORE_ANCHORS = [
+    { words: 0, score: 0 },
+    { words: 260, score: 9 },
+    { words: 520, score: 19 },
+    { words: 780, score: 29 },
+    { words: 1300, score: 59 },
+    { words: 1800, score: 79 },
+    { words: 2300, score: 99 },
+    { words: 3600, score: 114 },
+    { words: 5000, score: 129 },
+    { words: 9000, score: 145 },
+    { words: 12000, score: 160 }
+  ];
+
+  function vocabularyCount() {
+    return new Set(state.vocabulary.flatMap(v => tokenize(v.russian))).size;
+  }
+
+  function masteredVocabularyCount() {
+    const tokens = new Set();
+    for (const v of state.vocabulary) {
+      if (Number(v.mastery || 0) >= 90) {
+        for (const token of tokenize(v.russian)) {
+          if (token.length >= 2) tokens.add(token);
+        }
+      }
+    }
+    return tokens.size;
+  }
+
+  function interpolateScore(words) {
+    const n = Math.max(0, words);
+    for (let i = 1; i < VOCAB_SCORE_ANCHORS.length; i++) {
+      const a = VOCAB_SCORE_ANCHORS[i];
+      const b = VOCAB_SCORE_ANCHORS[i - 1];
+      if (n <= a.words) {
+        const ratio = a.words === b.words ? 0 : (n - b.words) / (a.words - b.words);
+        return b.score + ratio * (a.score - b.score);
+      }
+    }
+    return 160;
+  }
+
+  function vocabMilestoneForScore(score) {
+    const next = VOCAB_SCORE_ANCHORS.find(a => a.score > score);
+    return next || { words: 12000, score: 160 };
+  }
+
   function scoreEstimate() {
-    const words = vocabularyCount();
-    const mastered = state.vocabulary.filter(v => v.mastery >= 80).length;
+    const masteredWords = masteredVocabularyCount();
+    const vocabularyScore = interpolateScore(masteredWords);
     const accuracy = Number(state.stats.accuracy || 0);
-    const grammarMastery = Object.values(state.concepts).length ? Object.values(state.concepts).reduce((a,b) => a+b,0)/Object.values(state.concepts).length : 0;
-    const score = clamp(Math.round(Math.min(160, words/18 + mastered/4 + accuracy/8 + grammarMastery/6)),0,160);
-    return score;
+    const confidence = 0.60 + (0.40 * clamp(accuracy, 0, 100) / 100);
+    return clamp(Math.round(vocabularyScore * confidence), 0, 160);
+  }
+
+  function scoreDetails() {
+    const masteredWords = masteredVocabularyCount();
+    const score = scoreEstimate();
+    const [level, desc] = levelFromScore(score);
+    const next = vocabMilestoneForScore(score);
+    return {
+      score, level, desc, masteredWords,
+      nextWords: next.words,
+      nextGap: Math.max(0, next.words - masteredWords),
+      accuracy: Number(state.stats.accuracy || 0)
+    };
   }
   function dueWords() { const t = Date.now(); return state.vocabulary.filter(v => !v.due_at || new Date(v.due_at).getTime() <= t).sort((a,b) => new Date(a.due_at)-new Date(b.due_at)); }
   function masteryLabel(m) { return m >= 90 ? 'Mastered' : m >= 70 ? 'Strong' : m >= 40 ? 'Learning' : 'New'; }
@@ -392,6 +457,11 @@
     if (reviewSession.index >= reviewSession.queue.length) { finishSession(); return; }
     reviewSession.item = reviewSession.queue[reviewSession.index];
     reviewSession.type = chooseChallenge(reviewSession.item, reviewSession.index, reviewSession);
+    if (reviewSession.type === 'choice') {
+      reviewSession.choiceDirection = (reviewSession.index % 2 === 0) ? 'en_to_ru' : 'ru_to_en';
+    } else {
+      reviewSession.choiceDirection = null;
+    }
     reviewSession.answered = false; reviewSession.correct = false; reviewSession.lastSpeech='';
     route='review'; render();
   }
@@ -439,12 +509,12 @@
     reviewSession.index++; reviewSession.answered=false; nextReviewItem();
   }
 
-  function choiceOptions(item) {
-    const others = shuffle(state.vocabulary.filter(v=>v.id!==item.id && v.english)).slice(0,3).map(v=>v.english);
+  function englishOptions(item) {
+    const others = shuffle(state.vocabulary.filter(v=>v.id!==item.id && v.english).map(v=>v.english)).slice(0,3);
     return shuffle([item.english, ...others]);
   }
   function russianOptions(item) {
-    const others = shuffle(state.vocabulary.filter(v=>v.id!==item.id && v.russian)).slice(0,3).map(v=>v.russian);
+    const others = shuffle(state.vocabulary.filter(v=>v.id!==item.id && v.russian).map(v=>v.russian)).slice(0,3);
     return shuffle([item.russian, ...others]);
   }
   function buildWordBankAnswer(item) {
@@ -453,8 +523,13 @@
     return shuffle([...tokens, ...distractors]);
   }
   function renderChoiceExercise(item) {
-    const options = choiceOptions(item);
-    return `<div class="prompt">What does <strong>${esc(item.russian)}</strong> mean?<small><button class="text-btn" data-speak="${esc(item.russian)}">🔊 Hear it</button></small></div><div class="choices">${options.map(x=>`<button class="choice" data-choice="${esc(x)}">${esc(x)}</button>`).join('')}</div>`;
+    const direction = reviewSession?.choiceDirection || 'ru_to_en';
+    if (direction === 'en_to_ru') {
+      const options = russianOptions(item);
+      return `<div class="prompt">Choose the Russian translation<small><strong>${esc(item.english)}</strong></small></div><div class="choices">${options.map(x=>`<button class="choice" data-choice="${esc(x)}">${esc(x)}</button>`).join('')}</div>`;
+    }
+    const options = englishOptions(item);
+    return `<div class="prompt">What does this Russian word mean?<small><strong>${esc(item.russian)}</strong> <button class="text-btn" data-speak="${esc(item.russian)}">🔊 Hear it</button></small></div><div class="choices">${options.map(x=>`<button class="choice" data-choice="${esc(x)}">${esc(x)}</button>`).join('')}</div>`;
   }
   function renderTranslation(item) {
     return `<div class="prompt">Translate into English<small>Use the meaning you entered.</small><button class="text-btn" data-speak="${esc(item.russian)}">🔊 ${esc(item.russian)}</button></div><div class="answer-row"><input class="exercise-input" id="exercise-input" autocomplete="off" placeholder="Type the English meaning"><button class="primary-btn" data-check-input>Check</button></div>`;
@@ -493,19 +568,25 @@
     if(type==='wordbank') body=renderWordBank(item);
     if(type==='fill') body=renderFill(item);
     if(type==='speaking') body=renderSpeaking(item);
-    const feedback = reviewSession.answered ? `<div class="feedback ${reviewSession.correct?'good':'bad'}">${reviewSession.correct?'✅ Correct!':'❌ Not quite.'} ${reviewSession.correct?'Review the word once more if you want.':'The answer is: <strong>'+esc(item.russian)+'</strong> — '+esc(item.english)}</div>` : '';
+    const correctAnswerText = (type === 'choice' && reviewSession.choiceDirection === 'ru_to_en') || type === 'translation'
+      ? item.english
+      : item.russian;
+    const correctAnswerLabel = (type === 'choice' && reviewSession.choiceDirection === 'ru_to_en') || type === 'translation'
+      ? 'English'
+      : 'Russian';
+    const feedback = reviewSession.answered ? `<div class="feedback ${reviewSession.correct?'good':'bad'}">${reviewSession.correct?'✅ Correct!':'❌ Not quite.'} ${reviewSession.correct?'Review the word once more if you want.':'The correct '+correctAnswerLabel+' answer is: <strong>'+esc(correctAnswerText)+'</strong>'}</div>` : '';
     const nextControls = reviewSession.answered ? `<div class="exercise-footer"><span class="tiny muted">${reviewSession.correct?'Rate the memory strength':'Retry scheduling'}</span><div class="review-grade"><button class="grade-btn grade-again" data-grade="Again">Again</button><button class="grade-btn grade-hard" data-grade="Hard">Hard</button><button class="grade-btn grade-good" data-grade="Good">Good</button><button class="grade-btn grade-easy" data-grade="Easy">Easy</button></div></div>` : '';
     return `<div class="exercise"><div class="exercise-head"><div><span class="tag green">Adaptive review</span><span class="tag">${reviewSession.index+1} / ${reviewSession.queue.length}</span></div><button class="secondary-btn" data-route="home">Exit</button></div><div class="exercise-progress"><div style="width:${pct}%"></div></div><div class="exercise-card"><div class="exercise-meta"><span class="tag blue">${esc(masteryLabel(item.mastery))}</span><span class="tag">${esc(item.category)}</span><span class="tag">${esc(type)}</span></div>${body}${feedback}${nextControls}</div></div>`;
   }
 
   function renderHome() {
-    const score=scoreEstimate(); const [lvl,desc]=levelFromScore(score); const d=dayStats(); const due=dueWords(); const units=topicUnits();
+    const scoreInfo=scoreDetails(); const score=scoreInfo.score; const lvl=scoreInfo.level; const desc=scoreInfo.desc; const d=dayStats(); const due=dueWords(); const units=topicUnits();
     const goals=[
       {label:'Finish 1 lesson', done:d.reviews>0},
       {label:`Complete ${Math.max(10,state.settings.dailyGoal)} XP`, done:d.xp>=state.settings.dailyGoal},
       {label:'Practice one weak word', done:state.events.some(e=>!e.correct && e.created_at?.startsWith(dayKey()))}
     ];
-    return `<div class="hero"><div><span class="tag green">Personal Russian course</span><h1>Continue your Russian journey.</h1><p>Your lessons are generated from the words and phrases you enter. The engine prioritizes due reviews, weak concepts and progressively harder tasks.</p><div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:18px"><button class="primary-btn" data-start="learn">▶ Start lesson</button><button class="secondary-btn" data-start="review">↻ Review ${due.length}</button></div></div><div class="score-ring" style="--score:${Math.min(100,score/1.6)}%"><div class="score-inner"><strong>${score}</strong><span>Russian Score</span><small>${lvl}</small></div></div></div>
+    return `<div class="hero"><div><span class="tag green">Personal Russian course</span><h1>Continue your Russian journey.</h1><p>Your lessons are generated from the words and phrases you enter. The engine prioritizes due reviews, weak concepts and progressively harder tasks.</p><div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:18px"><button class="primary-btn" data-start="learn">▶ Start lesson</button><button class="secondary-btn" data-start="review">↻ Review ${due.length}</button></div></div><div class="score-ring" style="--score:${Math.min(100,score/1.6)}%"><div class="score-inner"><strong>${score}</strong><span>Score / 160</span><small>${lvl}</small></div></div></div>
       <div class="cards"><div class="card"><span class="muted">🔥 Streak</span><div class="stat-number">${state.stats.streak} days</div><span class="tiny muted">Keep today's activity alive.</span></div><div class="card"><span class="muted">📚 Vocabulary</span><div class="stat-number">${vocabularyCount()}</div><span class="tiny muted">${state.vocabulary.length} saved entries</span></div><div class="card"><span class="muted">🎯 Due now</span><div class="stat-number">${due.length}</div><span class="tiny muted">Spaced review queue</span></div></div>
       <div class="section-title"><h2>Today's quests</h2><span class="tag">${d.xp} XP today</span></div><div class="cards">${goals.map((g,i)=>`<div class="card"><div style="display:flex;justify-content:space-between;gap:12px"><strong>${g.label}</strong><span>${g.done?'✅':'⬜'}</span></div><div class="progress-track"><div class="progress-fill" style="width:${g.done?'100':'20'}%"></div></div><p class="tiny muted">${i===0?'Practice':i===1?'XP':'Fix a weak point'}</p></div>`).join('')}</div>
       <div class="section-title"><h2>Your path</h2><button class="text-btn" data-route="vocabulary">Manage vocabulary</button></div>${units.length?`<div class="path">${units.slice(0,8).map((u,i)=>renderUnit(u,i)).join('')}</div>`:`<div class="card empty"><h3>Start by adding Russian</h3><p>Add at least 8–10 words or phrases and the app will turn them into a personal course path.</p><button class="primary-btn" data-open="word-modal">+ Add vocabulary</button></div>`}`;
@@ -578,10 +659,17 @@
   }
 
   function renderProgress() {
-    const score=scoreEstimate(), [lvl,desc]=levelFromScore(score); const max=Math.max(1,state.vocabulary.length); const mastered=state.vocabulary.filter(v=>v.mastery>=80).length;
+    const info = scoreDetails();
     const last7=[]; for(let i=6;i>=0;i--){const d=new Date();d.setDate(d.getDate()-i);last7.push(dayKey(d));}
     const bars=last7.map(k=>`<div class="bar"><div style="height:${Math.max(4,Math.min(100,(dayStats(k).xp/Math.max(1,state.settings.dailyGoal))*100))}%"></div><small>${k.slice(5)}</small></div>`).join('');
-    return `<div class="page-head"><div><h1>Progress</h1><p>${lvl} · ${desc}. Your score is an adaptive estimate, not an official CEFR test.</p></div></div><div class="cards"><div class="card"><span class="muted">Russian Score</span><div class="stat-number">${score}/160</div><div class="progress-track"><div class="progress-fill" style="width:${score/1.6}%"></div></div></div><div class="card"><span class="muted">Mastered items</span><div class="stat-number">${mastered}</div><span class="tiny muted">of ${max}</span></div><div class="card"><span class="muted">Accuracy</span><div class="stat-number">${state.stats.accuracy||0}%</div><span class="tiny muted">Across recorded answers</span></div></div><div class="charts"><div class="card"><h3>XP · last 7 days</h3><div class="bar-chart">${bars}</div></div><div class="card"><h3>Skill health</h3>${GRAMMAR.map(g=>{const m=Math.round(state.concepts[g.id]||0);return `<div style="margin:12px 0"><div style="display:flex;justify-content:space-between"><span>${esc(g.name)}</span><strong>${m}%</strong></div><div class="progress-track"><div class="progress-fill" style="width:${m}%"></div></div></div>`}).join('')}</div></div>`;
+    return `<div class="page-head"><div><h1>Progress</h1><p>${info.level} · ${info.desc}. This is a vocabulary-based Duolingo-style comparison, not an official Duolingo Score or CEFR test.</p></div></div>
+      <div class="cards">
+        <div class="card"><span class="muted">Russian Score · comparison</span><div class="stat-number">${info.score}/160</div><div class="progress-track"><div class="progress-fill" style="width:${info.score/1.6}%"></div></div><div class="tiny muted" style="margin-top:8px">${info.masteredWords.toLocaleString()} mastered unique words · ${info.accuracy}% answer accuracy</div></div>
+        <div class="card"><span class="muted">Mastered vocabulary</span><div class="stat-number">${info.masteredWords.toLocaleString()}</div><span class="tiny muted">unique mastered Russian words/tokens</span></div>
+        <div class="card"><span class="muted">Next vocabulary milestone</span><div class="stat-number">${info.nextGap.toLocaleString()}</div><span class="tiny muted">more mastered words toward ${info.nextWords.toLocaleString()}</span></div>
+      </div>
+      <div class="card callout"><strong>How the score is calculated:</strong> only strongly mastered vocabulary (90%+ mastery) drives the main score. Russian lexical-minimum milestones are mapped onto Duolingo's 0–160 ranges, then answer accuracy applies a modest confidence factor. Adding unmastered words does not immediately raise your score.</div>
+      <div class="charts"><div class="card"><h3>XP · last 7 days</h3><div class="bar-chart">${bars}</div></div><div class="card"><h3>Skill health</h3>${GRAMMAR.map(g=>{const m=Math.round(state.concepts[g.id]||0);return `<div style="margin:12px 0"><div style="display:flex;justify-content:space-between"><span>${esc(g.name)}</span><strong>${m}%</strong></div><div class="progress-track"><div class="progress-fill" style="width:${m}%"></div></div></div>`}).join('')}</div></div>`;
   }
 
   function achievements() {
@@ -698,7 +786,22 @@
     if(e.target.id==='flashcard'){if(flashSession){flashSession.flipped=!flashSession.flipped;render();}return;}
     if(e.target.closest('[data-flash-grade]')){const g=e.target.closest('[data-flash-grade]').dataset.flashGrade;const item=flashSession.queue[flashSession.index];if(g==='Again')wrongAnswer(item,g,'flashcard');else correctAnswer(item,g,'flashcard');flashSession.index++;flashSession.flipped=false;render();return;}
     if(e.target.matches('[data-choice]')){
-      if(!reviewSession||reviewSession.answered)return; const item=reviewSession.item; const val=e.target.dataset.choice; const correct=reviewSession.type==='choice'?norm(val)===norm(item.english):norm(val)===norm(item.russian); $$('.choice').forEach(b=>{if(norm(b.dataset.choice)===norm(item.english)||norm(b.dataset.choice)===norm(item.russian)){} }); e.target.classList.add(correct?'correct':'wrong'); answerReview(correct,val);return;
+      if(!reviewSession||reviewSession.answered)return;
+      const item = reviewSession.item;
+      const val = e.target.dataset.choice;
+      let correct = false;
+      if (reviewSession.type === 'choice') {
+        const target = reviewSession.choiceDirection === 'en_to_ru' ? item.russian : item.english;
+        correct = norm(val) === norm(target);
+        $$('.choice').forEach(b => {
+          if (norm(b.dataset.choice) === norm(target)) b.classList.add('correct');
+        });
+      } else {
+        correct = norm(val) === norm(item.russian);
+      }
+      e.target.classList.add(correct ? 'correct' : 'wrong');
+      answerReview(correct, val);
+      return;
     }
     if(e.target.id==='check-bank'){ const slots=$$('#wordbank-slots .tag').map(x=>x.textContent.trim()).join(' '); const correct=norm(slots)===norm(reviewSession.item.russian); answerReview(correct,slots); return; }
     if(e.target.closest('.bank-token')){ const b=e.target.closest('.bank-token'); const host=$('#wordbank-slots'); if(host){const span=document.createElement('span');span.className='tag blue';span.textContent=b.dataset.token;host.appendChild(span);b.disabled=true;} return; }
